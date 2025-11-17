@@ -1,0 +1,50 @@
+services:
+  # reverse proxy
+  traefik:
+    image: traefik:3.5
+    env_file: traefik-crowdsec.env
+    # the ports Traefik listens on, usually HTTP (80) and HTTPS (443)
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      # Traefik access to your Docker daemon for its dynamic config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Traefik's static config file, where you define the Docker
+      # provider, which ports Traefik should listen on, etc.
+      - ./traefik-install.yml:/etc/traefik/traefik.yml
+      # path to dynamic config file, where the axum-backend settings
+      # are provided
+      - ./traefik-axum.yml:/etc/traefik/dynamic/axum-backend.yml
+      # where we'll store our Let's Encrypt certificates
+      - traefik-letsencrypt:/etc/traefik/letsencrypt
+      - traefik-logs:/var/log/traefik
+    restart: unless-stopped
+
+  # our Rust Axum API
+  axum-backend:
+    build: .
+    env_file: axum-backend.env
+    volumes:
+      # where the pgp messages not sent yet are stored
+      - axum-backend-pgp-messages:/media
+    restart: unless-stopped
+
+  # The CrowdSec utility providing blocklists and analysis
+  crowdsec:
+    # the "slim" image doesn't contain GeoIP databases
+    image: crowdsecurity/crowdsec:v1.7.3-slim
+    env_file: traefik-crowdsec.env
+    volumes:
+      - ./crowdsec-acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+      - traefik-logs:/var/log/traefik:ro
+      - crowdsec-db:/var/lib/crowdsec/data/
+      - crowdsec-config:/etc/crowdsec/
+    restart: unless-stopped
+
+volumes:
+  axum-backend-pgp-messages:
+  crowdsec-db:
+  crowdsec-config:
+  traefik-letsencrypt:
+  traefik-logs:

@@ -1,0 +1,52 @@
+tls:
+  options:
+    default:
+      # not all clients support TLS 1.3 yet, so we'll allow TLS 1.2
+      minVersion: VersionTLS12
+      # we want to strictly check the SNI: if unknown, block access
+      sniStrict: true
+
+http:
+  routers:
+    axum-backend-router:
+      rule: 'Host(`{{ env "AXUM_BACKEND_HOST" }}`)'
+      service: axum-backend-service
+      # specifying "tls" automatically blocks HTTP access
+      tls:
+        certResolver: letsencrypt
+      # use the "crowdsec" middleware defined below
+      middlewares:
+        - addCorsHeaders
+        - fiveReqPerMinute
+        - crowdsec
+
+  services:
+    axum-backend-service:
+      loadBalancer:
+        servers:
+          # Docker takes care of DNS for us, using the container's
+          # declared name in the Docker Compose file
+          - url: "http://axum-backend:3000"
+
+  middlewares:
+    fiveReqPerMinute:
+      rateLimit:
+        period: 60s
+        average: 5
+    addCorsHeaders:
+      headers:
+        accessControlAllowOriginList:
+          - "*"
+        accessControlAllowHeaders:
+          - "Content-Type"
+    crowdsec:
+      plugin:
+        bouncer:
+          enabled: true
+          LogFilePath: /var/log/traefik/crowdsec.log
+          # "stream" mode, only send API calls to CrowdSec once a minute
+          crowdsecMode: stream
+          crowdsecLapiKey: '{{ env "BOUNCER_KEY_TRAEFIK" }}'
+          # You may want to define your IP here: will bypass any check from bouncer or cache
+          clientTrustedIPs:
+            - 192.168.42.42/32
